@@ -1,0 +1,518 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Play, Maximize, Minimize, Volume2, VolumeX, User, Users, Swords, RotateCcw, Home } from 'lucide-react';
+
+// --- DATABASE SOAL KITAB SUCI ---
+const QUESTIONS = [
+  { q: "Kata 'Alkitab' berasal dari bahasa Arab 'Al-Kutub' yang berarti...", correct: "Buku-buku", wrong: ["Firman", "Tulisan suci", "Sabda", "Hukum"] },
+  { q: "Jumlah keseluruhan kitab dalam Alkitab Katolik adalah...", correct: "73 Kitab", wrong: ["66 Kitab", "39 Kitab", "46 Kitab", "27 Kitab"] },
+  { q: "Kitab pertama dalam Perjanjian Lama yang menceritakan penciptaan adalah...", correct: "Kejadian", wrong: ["Keluaran", "Imamat", "Bilangan", "Ulangan"] },
+  { q: "Penulis sebagian besar surat dalam Perjanjian Baru adalah...", correct: "Rasul Paulus", wrong: ["Rasul Petrus", "Rasul Yohanes", "Yakobus", "Matius"] },
+  { q: "Injil yang TIDAK termasuk dalam kelompok Injil Sinoptik adalah...", correct: "Yohanes", wrong: ["Matius", "Markus", "Lukas", "Kisah Para Rasul"] },
+  { q: "Berapa jumlah kitab dalam Perjanjian Baru?", correct: "27 Kitab", wrong: ["39 Kitab", "46 Kitab", "73 Kitab", "12 Kitab"] },
+  { q: "Bahasa asli yang digunakan untuk menulis sebagian besar Perjanjian Lama adalah...", correct: "Ibrani", wrong: ["Yunani", "Aram", "Latin", "Arab"] },
+  { q: "Siapakah tokoh yang memimpin bangsa Israel keluar dari tanah Mesir?", correct: "Musa", wrong: ["Abraham", "Daud", "Salomo", "Yosua"] },
+  { q: "Kitab yang berisi puji-pujian dan ratapan, sebagian besar dikaitkan dengan Raja Daud adalah...", correct: "Mazmur", wrong: ["Amsal", "Kidungan", "Pengkhotbah", "Yesaya"] },
+  { q: "Peristiwa turunnya Roh Kudus atas para rasul disebut...", correct: "Pentakosta", wrong: ["Paskah", "Natal", "Kenaikan", "Epifani"] },
+  { q: "Dimanakah Yesus dilahirkan?", correct: "Betlehem", wrong: ["Nazaret", "Yerusalem", "Golgota", "Yerikho"] },
+  { q: "Siapakah nabi yang menunjuk Yesus dan berkata, 'Lihatlah Anak domba Allah'?", correct: "Yohanes Pembaptis", wrong: ["Elia", "Yesaya", "Yeremia", "Musa"] },
+  { q: "Tempat Yesus disalibkan disebut...", correct: "Golgota", wrong: ["Getsemani", "Sion", "Tabor", "Karmel"] },
+  { q: "Siapakah murid yang mengkhianati Yesus?", correct: "Yudas Iskariot", wrong: ["Petrus", "Thomas", "Yohanes", "Yakobus"] },
+  { q: "Hari peringatan kebangkitan Yesus dari kematian disebut...", correct: "Paskah", wrong: ["Jumat Agung", "Rabu Abu", "Minggu Palma", "Pentakosta"] }
+];
+
+// --- UTILITY: Shuffle Array ---
+const shuffleArray = (array) => {
+  const newArr = [...array];
+  for (let i = newArr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+  }
+  return newArr;
+};
+
+// --- AUDIO SYSTEM (Web Audio API) ---
+const playSound = (type, audioEnabled) => {
+  if (!audioEnabled) return;
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  
+  if (type === 'jump') {
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.1);
+  } else if (type === 'splash') {
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(150, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.4);
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } else if (type === 'bgm') {
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(200, ctx.currentTime);
+    gain.gain.setValueAtTime(0.05, ctx.currentTime);
+    osc.start();
+    return { osc, ctx }; 
+  }
+};
+
+// --- COMPONENTS ---
+
+const RainEffect = () => {
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
+      {Array.from({ length: 30 }).map((_, i) => (
+        <div 
+          key={i} 
+          className="absolute bg-blue-200 opacity-60 rain-drop"
+          style={{
+            left: `${Math.random() * 100}%`,
+            top: `-20px`,
+            width: '2px',
+            height: `${Math.random() * 15 + 10}px`,
+            animationDelay: `${Math.random() * 2}s`,
+            animationDuration: `${Math.random() * 0.5 + 0.5}s`
+          }}
+        />
+      ))}
+    </div>
+  );
+};
+
+// Komponen Pinggir Parit (Tanah + Rumput)
+const DitchBankEffect = () => {
+  return (
+    <div className="absolute bottom-0 left-0 w-full h-20 md:h-28 pointer-events-none z-30 flex flex-col justify-end">
+      {/* Lapisan Rumput Parit */}
+      <div className="relative h-12 md:h-16 w-full translate-y-1">
+        <svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 100 100" className="absolute bottom-0 left-0 fill-green-700 opacity-90 transform -scale-x-100">
+          <path d="M0,100 L3,50 L7,100 L11,30 L15,100 L20,60 L24,100 L29,20 L34,100 L40,40 L45,100 L50,70 L55,100 L62,30 L68,100 L74,15 L80,100 L86,50 L92,100 L97,30 L100,100 Z" />
+        </svg>
+        <svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 100 100" className="absolute bottom-0 left-0 fill-green-600">
+          <path d="M0,100 L2,40 L5,100 L8,20 L12,100 L16,50 L20,100 L25,10 L30,100 L35,30 L40,100 L45,60 L50,100 L55,20 L60,100 L65,10 L70,100 L75,40 L80,100 L85,20 L90,100 L95,50 L100,100 Z" />
+        </svg>
+      </div>
+      {/* Tanah Tepi Parit (Dirt Bank) */}
+      <div className="w-full h-8 md:h-12 bg-[#5c3a21] border-t-[3px] border-green-800 relative shadow-[inset_0_5px_10px_rgba(0,0,0,0.3)] overflow-hidden">
+        {/* Tekstur titik-titik pada tanah */}
+        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#291508_2px,_transparent_2px)] bg-[size:12px_12px]"></div>
+      </div>
+    </div>
+  );
+};
+
+// Komponen Animasi Alkitab (Untuk Menu Utama)
+const BibleSVG = () => (
+  <div className="relative w-40 h-40 lg:w-64 lg:h-64 mb-2 z-10 animate-bounce-slow drop-shadow-2xl">
+    <svg viewBox="0 0 100 100" className="w-full h-full">
+      {/* Radiant Halo Glow */}
+      <circle cx="50" cy="50" r="35" fill="#fef08a" className="animate-pulse" opacity="0.3" />
+      <circle cx="50" cy="50" r="25" fill="#fde047" opacity="0.5" />
+      
+      {/* Book Spine */}
+      <path d="M 30 20 L 40 15 L 40 75 L 30 80 Z" fill="#451a03" />
+      {/* Book Cover Front */}
+      <path d="M 40 15 L 80 25 L 80 85 L 40 75 Z" fill="#78350f" />
+      {/* Pages Side (Bottom) */}
+      <path d="M 30 80 L 40 75 L 80 85 L 70 90 Z" fill="#fef3c7" />
+      
+      {/* Spine details (ridges) */}
+      <path d="M 30 35 L 40 30 M 30 50 L 40 45 M 30 65 L 40 60" stroke="#b45309" strokeWidth="2" />
+      
+      {/* Golden Cross on Cover */}
+      <line x1="60" y1="35" x2="60" y2="65" stroke="#fbbf24" strokeWidth="4" strokeLinecap="round" />
+      <line x1="50" y1="45" x2="70" y2="50" stroke="#fbbf24" strokeWidth="4" strokeLinecap="round" />
+      
+      {/* Bookmark ribbon */}
+      <path d="M 65 81 L 67 96 L 72 92 L 77 98 L 75 83 Z" fill="#dc2626" />
+    </svg>
+  </div>
+);
+
+const PlayerBoard = ({ playerId, audioEnabled, mode }) => {
+  const [gameState, setGameState] = useState('playing'); // playing, jumping, falling, gameover
+  const [score, setScore] = useState(0);
+  const [combo, setCombo] = useState(0);
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const [options, setOptions] = useState([]);
+  const [shuffledQuestions, setShuffledQuestions] = useState([]);
+  
+  // Init Game
+  const initGame = useCallback(() => {
+    const shuffled = shuffleArray(QUESTIONS);
+    setShuffledQuestions(shuffled);
+    setCurrentQIndex(0);
+    setScore(0);
+    setCombo(0);
+    setGameState('playing');
+    generateOptions(shuffled[0]);
+  }, []);
+
+  useEffect(() => {
+    initGame();
+  }, [initGame]);
+
+  const generateOptions = (questionObj) => {
+    if (!questionObj) return;
+    const allOptions = [questionObj.correct, ...questionObj.wrong];
+    setOptions(shuffleArray(allOptions));
+  };
+
+  const handleAnswer = (answer) => {
+    if (gameState !== 'playing') return;
+
+    const isCorrect = answer === shuffledQuestions[currentQIndex].correct;
+
+    if (isCorrect) {
+      setGameState('jumping');
+      playSound('jump', audioEnabled);
+      setScore(s => s + 10 + (combo * 5));
+      setCombo(c => c + 1);
+      
+      setTimeout(() => {
+        const nextIndex = currentQIndex + 1;
+        if (nextIndex < shuffledQuestions.length) {
+          setCurrentQIndex(nextIndex);
+          generateOptions(shuffledQuestions[nextIndex]);
+          setGameState('playing');
+        } else {
+          // Win condition if questions run out, reshuffle and continue
+          const reshuffled = shuffleArray(QUESTIONS);
+          setShuffledQuestions(reshuffled);
+          setCurrentQIndex(0);
+          generateOptions(reshuffled[0]);
+          setGameState('playing');
+        }
+      }, 600); // Wait for jump animation
+    } else {
+      setGameState('falling');
+      playSound('splash', audioEnabled);
+      setCombo(0);
+      setTimeout(() => {
+        setGameState('gameover');
+      }, 1500); // Wait for sink animation
+    }
+  };
+
+  const currentQ = shuffledQuestions[currentQIndex];
+
+  return (
+    <div className="relative w-full h-full flex flex-col items-center overflow-hidden bg-gradient-to-r from-teal-950 via-teal-600 to-teal-950 border-2 border-teal-900 rounded-xl shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]">
+      
+      {/* Aliran Air Parit (Stream Effect) */}
+      <div className="absolute inset-0 opacity-30 water-anim pointer-events-none mix-blend-overlay"></div>
+      
+      {/* Player Header */}
+      <div className="z-10 w-full p-2 md:p-4 flex justify-between items-center bg-black/50 text-white backdrop-blur-sm border-b border-white/10">
+        <div className={`font-bold ${mode === 'squad' ? 'text-xs' : 'text-sm md:text-lg'}`}>Player {playerId}</div>
+        <div className="flex gap-2 md:gap-4 items-center">
+          {combo > 1 && <span className={`text-yellow-300 font-bold animate-pulse ${mode === 'squad' ? 'text-[10px]' : 'text-xs md:text-sm'}`}>{combo}x Combo!</span>}
+          <div className={`font-bold text-green-300 ${mode === 'squad' ? 'text-xs' : 'text-sm md:text-xl'}`}>Skor: {score}</div>
+        </div>
+      </div>
+
+      {gameState === 'gameover' ? (
+        <div className="z-30 flex-1 flex flex-col items-center justify-center text-white p-4 text-center">
+          <div className={`${mode === 'squad' ? 'text-4xl' : 'text-6xl'} mb-4`}>💦🐸💦</div>
+          <h2 className={`${mode === 'squad' ? 'text-lg' : 'text-3xl'} font-black mb-2 text-red-400 drop-shadow-md`}>Yahh, Tenggelam!</h2>
+          <p className={`${mode === 'squad' ? 'text-sm' : 'text-xl'} mb-4 md:mb-6`}>Skor Akhir: <span className="text-green-300 font-bold">{score}</span></p>
+          <button 
+            onClick={initGame}
+            className={`flex items-center gap-2 bg-green-500 hover:bg-green-400 text-white rounded-full font-bold shadow-lg transform transition active:scale-95 ${mode === 'squad' ? 'px-4 py-2 text-xs' : 'px-6 py-3'}`}
+          >
+            <RotateCcw size={mode === 'squad' ? 14 : 20} /> Main Lagi
+          </button>
+        </div>
+      ) : (
+        <div className="flex-1 w-full flex flex-col p-2 md:p-4 max-w-md mx-auto relative">
+          
+          {/* Question Box */}
+          <div className={`z-10 bg-white/90 backdrop-blur text-teal-900 rounded-2xl shadow-xl text-center transition-all duration-500 border-b-4 border-teal-200 ${gameState === 'jumping' ? 'opacity-0 -translate-y-4' : 'opacity-100 translate-y-0'} ${mode === 'squad' ? 'p-2 mb-2' : 'p-3 md:p-5 mb-4 md:mb-8'}`}>
+            <h3 className={`font-bold leading-tight ${mode === 'squad' ? 'text-xs' : 'text-sm md:text-lg'}`}>{currentQ?.q}</h3>
+          </div>
+
+          {/* Lily Pads (Answers) */}
+          <div className={`flex-1 flex flex-col justify-center relative z-10 transition-all duration-500 ${gameState === 'jumping' ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'} ${mode === 'squad' ? 'gap-1.5' : 'gap-2 md:gap-4'}`}>
+            {options.map((opt, i) => (
+              <button
+                key={i}
+                onClick={() => handleAnswer(opt)}
+                disabled={gameState !== 'playing'}
+                className={`group relative w-full bg-green-500 hover:bg-green-400 border-green-700 rounded-full text-white font-bold shadow-md transition-transform transform hover:-translate-y-1 active:translate-y-1 active:border-b-0 overflow-hidden ${mode === 'squad' ? 'py-1.5 px-2 text-[10px] md:text-xs border-b-2' : 'py-3 md:py-4 px-4 text-xs md:text-sm border-b-4'}`}
+              >
+                <div className="absolute inset-0 bg-green-400 opacity-0 group-hover:opacity-20 rounded-full"></div>
+                {opt}
+              </button>
+            ))}
+          </div>
+
+          {/* Frog Character Area (Duduk di atas pinggir parit) - z-20 agar katak sebagian tertutup rumput (z-30) */}
+          <div className={`relative shrink-0 w-full mt-auto flex items-end justify-center pointer-events-none z-20 ${mode === 'squad' ? 'h-20 mb-12 md:mb-16' : 'h-28 md:h-32 mb-20 md:mb-28'}`}>
+            
+            {/* The Frog */}
+            <div className={`absolute transition-all duration-500 origin-bottom ${mode === 'squad' ? 'text-4xl' : 'text-6xl md:text-[5rem]'}
+              ${gameState === 'playing' ? 'bottom-2 md:bottom-4 animate-bounce-slow' : ''}
+              ${gameState === 'jumping' ? 'bottom-[200%] scale-150 rotate-12' : ''}
+              ${gameState === 'falling' ? '-bottom-10 scale-50 opacity-0 sink-anim' : ''}
+            `}>
+              🐸
+            </div>
+
+            {/* Splash Effect (Saat Jatuh) */}
+            {gameState === 'falling' && (
+              <div className={`absolute bottom-0 flex items-center justify-center z-30 ${mode === 'squad' ? 'w-16 h-16' : 'w-32 h-32'}`}>
+                <div className="absolute w-full h-full border-4 border-white rounded-full animate-ping opacity-0"></div>
+                <div className="absolute w-1/2 h-1/2 bg-white rounded-full animate-pulse opacity-50 blur-sm"></div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Rain Effect on Game Over */}
+      {gameState === 'gameover' && <RainEffect />}
+
+      {/* Pinggir Parit (Tanah & Rumput) */}
+      <DitchBankEffect />
+    </div>
+  );
+};
+
+export default function App() {
+  const [mode, setMode] = useState('menu'); // menu, solo, duel, squad
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const bgmRef = useRef(null);
+
+  // Global styles for custom animations
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.innerHTML = `
+      @keyframes rain-fall {
+        0% { transform: translateY(-100vh); opacity: 0; }
+        10% { opacity: 1; }
+        90% { opacity: 1; }
+        100% { transform: translateY(100vh); opacity: 0; }
+      }
+      .rain-drop {
+        animation: rain-fall linear infinite;
+      }
+      @keyframes sink {
+        0% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
+        50% { transform: translateY(20px) scale(0.8) rotate(15deg); opacity: 0.8; }
+        100% { transform: translateY(50px) scale(0.5) rotate(45deg); opacity: 0; }
+      }
+      .sink-anim {
+        animation: sink 1.5s forwards ease-in;
+      }
+      @keyframes water-flow {
+        0% { background-position: 0px 0px; }
+        100% { background-position: 0px 100px; }
+      }
+      .water-anim {
+        background-image: repeating-linear-gradient(to bottom, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 15px, transparent 15px, transparent 30px);
+        background-size: 100% 100px;
+        animation: water-flow 1.5s linear infinite;
+      }
+      .animate-bounce-slow {
+        animation: bounce 2s infinite;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.log(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      setIsFullscreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    }
+  };
+
+  const toggleAudio = () => {
+    setAudioEnabled(!audioEnabled);
+  };
+
+  const startGame = (selectedMode) => {
+    setMode(selectedMode);
+    
+    // Otomatis Fullscreen saat mode dipilih
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.log(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      setIsFullscreen(true);
+    }
+
+    if (audioEnabled && !bgmRef.current) {
+       // Optional: Start ambient BGM here if desired
+    }
+  };
+
+  const backToMenu = () => {
+    setMode('menu');
+  };
+
+  // --- RENDER MAIN MENU ---
+  if (mode === 'menu') {
+    return (
+      <>
+        {/* Peringatan Mode Portrait (Khusus HP yang belum diputar) */}
+        <div className="portrait:flex landscape:hidden fixed inset-0 z-[100] bg-teal-950 flex-col items-center justify-center text-white p-8 text-center">
+          <div className="text-6xl mb-6 animate-pulse" style={{ transform: 'rotate(90deg)' }}>📱</div>
+          <h2 className="text-3xl font-black mb-3 text-green-400">Putar Perangkat!</h2>
+          <p className="text-teal-200 text-lg">Game ini dirancang khusus untuk dimainkan dalam mode <b>Landscape</b> (Mendatar). Silakan putar posisi HP Anda.</p>
+        </div>
+
+        {/* Layout Utama Halaman Awal (Landscape Strict) */}
+        <div className="portrait:hidden landscape:flex min-h-screen bg-gradient-to-br from-teal-950 via-teal-900 to-green-950 flex-row items-center justify-between p-6 lg:p-12 relative overflow-hidden font-sans">
+          <div className="absolute inset-0 opacity-30 water-anim pointer-events-none mix-blend-overlay"></div>
+          
+          {/* Credit Title */}
+          <div className="absolute top-4 left-4 z-20 text-teal-200/80 font-bold text-sm tracking-wide drop-shadow-md bg-black/40 px-4 py-1.5 rounded-full border border-white/10 backdrop-blur-md">
+            Karya: Andriani
+          </div>
+
+          {/* Top Controls */}
+          <div className="absolute top-4 right-4 flex gap-2 z-20">
+            <button onClick={toggleAudio} className="p-2 lg:p-3 bg-black/40 hover:bg-black/60 border border-white/10 rounded-full text-white backdrop-blur transition shadow-lg">
+              {audioEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+            </button>
+            <button onClick={toggleFullscreen} className="p-2 lg:p-3 bg-black/40 hover:bg-black/60 border border-white/10 rounded-full text-white backdrop-blur transition shadow-lg">
+              {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+        </button>
+      </div>
+
+      {/* KIRI: Judul dan Katak */}
+      <div className="flex-1 h-full flex flex-col items-start justify-center z-10 text-left pl-4 lg:pl-16">
+        
+        {/* Animasi Alkitab */}
+        <BibleSVG />
+        
+        <h1 className="text-4xl lg:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-300 via-emerald-400 to-cyan-400 drop-shadow-lg mb-2 leading-tight">
+          GAME<br /> KITAB SUCI
+        </h1>
+        <h2 className="text-xs lg:text-base font-bold text-teal-100 mb-4 tracking-[0.05em] uppercase bg-black/30 inline-block px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg border border-teal-500/30 shadow-lg">
+              Topik: <span className="text-green-400">Perjanjian Lama & Perjanjian Baru</span>
+            </h2>
+            <p className="text-teal-200/80 max-w-sm text-xs lg:text-sm leading-relaxed">
+              Melompatlah dari daun ke daun dengan menjawab pertanyaan Kitab Suci. Awas jatuh ke air!
+            </p>
+          </div>
+
+          {/* KANAN: Pilihan Mode Permainan */}
+          <div className="flex-1 h-full flex flex-col items-end justify-center z-10 pr-4 lg:pr-16">
+            <div className="bg-black/50 p-4 lg:p-8 rounded-[1.5rem] lg:rounded-[2rem] backdrop-blur-xl shadow-2xl border border-white/10 w-full max-w-[280px] lg:max-w-sm flex flex-col gap-3 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-green-400 to-transparent opacity-50"></div>
+              
+              <h3 className="text-center text-teal-300 font-bold tracking-widest mb-2 lg:mb-4 text-xs lg:text-sm drop-shadow-md">PILIH MODE MAIN</h3>
+
+              <button 
+                onClick={() => startGame('solo')}
+                className="group relative flex items-center justify-between bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-500 hover:to-emerald-600 text-white py-3 px-4 lg:py-4 lg:px-6 rounded-xl lg:rounded-2xl font-bold text-sm lg:text-lg shadow-xl transform transition hover:-translate-y-1 active:scale-95 overflow-hidden border border-green-400/30"
+              >
+                <div className="flex items-center gap-3 z-10">
+                  <div className="bg-black/20 p-1.5 lg:p-2 rounded-lg"><User size={20} /></div>
+                  <span>Solo Mode</span>
+                </div>
+                <Play size={18} className="z-10 opacity-50 group-hover:opacity-100 transition-opacity" />
+              </button>
+              
+              <button 
+                onClick={() => startGame('duel')}
+                className="group relative flex items-center justify-between bg-gradient-to-r from-blue-600 to-cyan-700 hover:from-blue-500 hover:to-cyan-600 text-white py-3 px-4 lg:py-4 lg:px-6 rounded-xl lg:rounded-2xl font-bold text-sm lg:text-lg shadow-xl transform transition hover:-translate-y-1 active:scale-95 overflow-hidden border border-blue-400/30"
+              >
+                <div className="flex items-center gap-3 z-10">
+                  <div className="bg-black/20 p-1.5 lg:p-2 rounded-lg"><Swords size={20} /></div>
+                  <span>Duel Mode</span>
+                </div>
+                <Play size={18} className="z-10 opacity-50 group-hover:opacity-100 transition-opacity" />
+              </button>
+
+              <button 
+                onClick={() => startGame('squad')}
+                className="group relative flex items-center justify-between bg-gradient-to-r from-purple-600 to-pink-700 hover:from-purple-500 hover:to-pink-700 text-white py-3 px-4 lg:py-4 lg:px-6 rounded-xl lg:rounded-2xl font-bold text-sm lg:text-lg shadow-xl transform transition hover:-translate-y-1 active:scale-95 overflow-hidden border border-purple-400/30"
+              >
+                <div className="flex items-center gap-3 z-10">
+                  <div className="bg-black/20 p-1.5 lg:p-2 rounded-lg"><Users size={20} /></div>
+                  <span>Squad Mode</span>
+                </div>
+                <Play size={18} className="z-10 opacity-50 group-hover:opacity-100 transition-opacity" />
+              </button>
+            </div>
+          </div>
+
+          {/* Tambahan Efek Rumput di Menu Utama */}
+          <DitchBankEffect />
+        </div>
+      </>
+    );
+  }
+
+  // --- RENDER GAME LAYOUT ---
+  return (
+    <div className="h-screen w-screen bg-gray-900 flex flex-col font-sans overflow-hidden">
+      {/* Top Navbar during game */}
+      <div className="h-12 bg-gray-800 text-white flex justify-between items-center px-4 shadow-md z-50 relative">
+        <div className="flex items-center gap-4">
+          <button onClick={backToMenu} className="flex items-center gap-2 hover:text-green-400 transition text-sm font-bold">
+            <Home size={18} /> Menu Utama
+          </button>
+          <div className="text-xs text-gray-400 font-semibold hidden md:block border-l border-gray-600 pl-4">
+            Karya: Andriani
+          </div>
+        </div>
+        <div className="font-black text-green-400 tracking-wider hidden md:block absolute left-1/2 transform -translate-x-1/2">GAME KITAB SUCI</div>
+        <div className="flex gap-4">
+          <button onClick={toggleAudio} className="hover:text-green-400 transition">
+            {audioEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+          </button>
+          <button onClick={toggleFullscreen} className="hover:text-green-400 transition hidden md:block">
+             {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Grid System based on Mode */}
+      <div className={`flex-1 w-full p-2 gap-2 bg-black/90 ${
+        mode === 'solo' ? 'flex items-center justify-center' :
+        mode === 'duel' ? 'grid grid-cols-2' :
+        'grid grid-cols-4' // squad tampilan vertikal 4 layar
+      }`}>
+        {mode === 'solo' && <PlayerBoard playerId={1} audioEnabled={audioEnabled} mode={mode} />}
+        
+        {mode === 'duel' && (
+          <>
+            <PlayerBoard playerId={1} audioEnabled={audioEnabled} mode={mode} />
+            <PlayerBoard playerId={2} audioEnabled={audioEnabled} mode={mode} />
+          </>
+        )}
+
+        {mode === 'squad' && (
+          <>
+            <PlayerBoard playerId={1} audioEnabled={audioEnabled} mode={mode} />
+            <PlayerBoard playerId={2} audioEnabled={audioEnabled} mode={mode} />
+            <PlayerBoard playerId={3} audioEnabled={audioEnabled} mode={mode} />
+            <PlayerBoard playerId={4} audioEnabled={audioEnabled} mode={mode} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
